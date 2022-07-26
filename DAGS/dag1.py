@@ -1,17 +1,23 @@
+#video Posted Jul 14
+
 from airflow.models import DAG
 from airflow.operators.dummy import DummyOperator #vacío sólo marca
 from airflow.utils.dates import days_ago #para la defición del DAG >> start_date=days_ago(1)
 from airflow.providers.postgres.operators.postgres import PostgresOperator #for stage 'prepare'
 from airflow.providers.postgres.hooks.postgres import PostgresHook #for func ingest_data
-from airflow.operators.sql import BranchSQLOperator #dividirá el camino para ver si está vacío en stage 
+from airflow.operators.sql import BranchSQLOperator #dividirá el camino para ver si la tabla está vacía
+from airflow.utils.trigger_rule import TriggerRule #para task load
+from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+
 
 def ingest_data():
-    hook = PostgresHook(postgres_conn_id="con_table")
-    hook.insert_rows(
-
-    )
-
-
+    s3_hook = S3Hook(aws_conn_id='aws_default')
+    psql_hook =PostgresHook(postgres_conn_id = 'con_t able')
+    file= s3_hook.download_file(
+        key='datasets/chart-data.csv', bucket_name= 'bootcamp-project-assets') #revisar ruta y nombre
+ 
+    psql_hook.bulk_load(table='user_purchase', tmp_file=file)
 
 with DAG ("db_ingestion",
     start_date=days_ago(1),
@@ -19,7 +25,12 @@ with DAG ("db_ingestion",
     catchup=False)as dag:
 
     start_workflow =DummyOperator (task_id = "start_workflow")
-    validate=DummyOperator (task_id = "validate") #contar cuantas son
+    validate=S3KeySensor(
+        task_id = "validate",
+        aws_conn_id= 'aws_default', 
+        bucket_name='bootcamp-project-assets', #no sé si se llama igual pero me imagino que sí por el template... pendiente buscar nombre (min 1.24)
+        bucket_key="datasets/chart-data.csv") #revisar esta ruta tambi[ien]
+
     prepare=PostgresOperator (task_id = "prepare_table", postgres_conn_id="con_table", 
         sql=""" 
         CREATE SCHEMA IF NOT EXISTS;
@@ -63,5 +74,16 @@ with DAG ("db_ingestion",
     load=DummyOperator (task_id = "load")
     end_workflow=DummyOperator (task_id = "end_workflow")
 
+    load = PythonOperator(
+        task_id="load", 
+        python_callable=ingest_data,
+        trigger_rule=TriggerRule.ONE_SUCCESS,) 
+        #TriggerRule es para que continúe al siguiente paso si falla la anterior
+    end_workflow = DummyOperator(task_id="end_workflow")
+
+
 #orden
-start_workflow >> validate >> prepare >> load >>end_workflow  
+start_workflow >> validate >> prepare >> branch 
+branch >> [clear, continue_workflow]>> load >>end_workflow  
+#con [] marcamos que puede tomar varios caminos, como un if
+#si quieres dividir para leer mejor se repite el último de la cadena 
