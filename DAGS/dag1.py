@@ -11,13 +11,15 @@ from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 
-def ingest_data():
+#contrasena conexion sql
+
+def ingest_data():#hacer variable de bucket s3 en () y cambiar aqui y abajo
     s3_hook = S3Hook(aws_conn_id='aws_default')
-    psql_hook =PostgresHook(postgres_conn_id = 'con_t able')
+    psql_hook =PostgresHook(postgres_conn_id = 'con_table')
     file= s3_hook.download_file(
-        key='datasets/chart-data.csv', bucket_name= 'bootcamp-project-assets') #revisar ruta y nombre
+        key='datasets/chart-data.csv', bucket_name= 'bootcamp-project-assets') #esto esta en terraform.tfvars .... bucket_prefix = "s3-Data-bootcamp-"
  
-    psql_hook.bulk_load(table='user_purchase', tmp_file=file)
+    psql_hook.bulk_load(table='user_purchase', tmp_file=file) #puede que sea schema_wize.user_purchase
 
 with DAG ("db_ingestion",
     start_date=days_ago(1),
@@ -28,13 +30,16 @@ with DAG ("db_ingestion",
     validate=S3KeySensor(
         task_id = "validate",
         aws_conn_id= 'aws_default', 
-        bucket_name='bootcamp-project-assets', #no sé si se llama igual pero me imagino que sí por el template... pendiente buscar nombre (min 1.24)
+        bucket_name='bootcamp-project-assets',
+        # esto esta en terraform.tfvars .... bucket_prefix = "s3-Data-bootcamp-"
+        #no sé si se llama igual pero me imagino que sí por el template... pendiente buscar nombre (min 1.24)
         bucket_key="datasets/chart-data.csv") #revisar esta ruta tambi[ien]
 
     prepare=PostgresOperator (task_id = "prepare_table", postgres_conn_id="con_table", 
+        #nombre de schema
         sql=""" 
-        CREATE SCHEMA IF NOT EXISTS;
-        CREATE TABLE if not exist.user_purchase (
+        CREATE SCHEMA IF NOT EXISTS schema_wize;
+        CREATE TABLE if not exists schema_wize.user_purchase (
         invoice_number varchar(10),
         stock_code varchar(20),
         detail varchar(1000),
@@ -58,14 +63,14 @@ with DAG ("db_ingestion",
  
     clear = PostgresOperator( #clear data if is not empty... sale de branch
         task_id="clear",
-        postgres_conn_id="ml_conn",
-        sql="""DELETE FROM wize.user_purchase""",
+        postgres_conn_id="con_table",
+        sql="""DELETE FROM schema_wize.user_purchase""",
     )
     continue_workflow = DummyOperator(task_id="continue_workflow") #continua el workflow si está empty
     branch = BranchSQLOperator (
         task_id='is_empty',
         conn_id='con_table',
-        sql="SELECT COUNT(*) AS rows FROM user_purchase", 
+        sql="SELECT COUNT(*) AS rows FROM schema_wize.user_purchase", 
         #if the result count is 0 mark as false, if is 1 or more is TRUE and clear.... 
         follow_task_ids_if_true=[clear.task_id], #llama a task clear 
         follow_task_ids_if_false=[continue_workflow.task_id], #llama a task continue_workflow
