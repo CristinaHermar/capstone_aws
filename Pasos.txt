@@ -1,2 +1,3 @@
-LINK : https://github.com/CristinaHermar/data-engineering-bootcamp/tree/main/terraforms-templates/aws
+LINK (terraform) : https://github.com/CristinaHermar/data-engineering-bootcamp/tree/main/terraforms-templates/aws
+LINK (Airflow): https://github.com/CristinaHermar/data-engineering-bootcamp/blob/main/terraforms-templates/kubernetes/README.md
 
